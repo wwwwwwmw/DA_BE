@@ -1,4 +1,4 @@
-const { Task, Project, Label, TaskAssignment, User, Participant, Event } = require('../../models');
+const { Task, Project, Label, TaskAssignment, User, Participant, Event, TaskComment } = require('../../models');
 const { getIO } = require('../../utils/socket');
 const { Op } = require('sequelize');
 
@@ -347,3 +347,35 @@ async function updateProgress(req, res) {
 }
 
 module.exports = { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, acceptTask, updateProgress, rejectTask, approveRejection, denyRejection };
+// ===== Comments APIs =====
+async function listComments(req, res) {
+  try {
+    const taskId = req.params.id;
+    const task = await Task.findByPk(taskId);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+    const list = await TaskComment.findAll({
+      where: { taskId },
+      include: [{ model: User, attributes: ['id','name','email'] }],
+      order: [['created_at','ASC']]
+    });
+    return res.json(list);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+}
+
+async function createComment(req, res) {
+  try {
+    const taskId = req.params.id;
+    const task = await Task.findByPk(taskId);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+    const contentRaw = (req.body?.content ?? '').toString().trim();
+    if (!contentRaw) return res.status(400).json({ message: 'Missing content' });
+    const content = contentRaw.slice(0, 5000);
+    const created = await TaskComment.create({ taskId, userId: req.user.id, content });
+    const withUser = await TaskComment.findByPk(created.id, { include: [{ model: User, attributes: ['id','name','email'] }] });
+    try { getIO().emit('dataUpdated', { resource: 'task_comments', action: 'create', id: created.id, taskId }); } catch (_) {}
+    return res.status(201).json(withUser);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+}
+
+module.exports.listComments = listComments;
+module.exports.createComment = createComment;

@@ -71,12 +71,24 @@ async function getEvent(req, res) {
 
 async function createEvent(req, res) {
   try {
-    const { title, description, start_time, end_time, roomId, participantIds = [], repeat, departmentId, isGlobal } = req.body;
+    const { title, description, start_time, end_time, roomId, participantIds = [], repeat, departmentId, isGlobal, status: bodyStatus } = req.body;
     if (!title || !start_time || !end_time) return res.status(400).json({ message: 'Missing required fields' });
-    // Authorization: admin can create any; manager can create for own dept or global; employee only own (pending) maybe but keep simple: forbid
-    if (!(req.user.role === 'admin' || req.user.role === 'manager')) return res.status(403).json({ message: 'Forbidden' });
+    // Authorization & Department scope checks
     if (req.user.role === 'manager' && departmentId && String(departmentId) !== String(req.user.departmentId)) {
       return res.status(403).json({ message: 'Cannot create event for another department' });
+    }
+    if (req.user.role === 'employee' && departmentId && String(departmentId) !== String(req.user.departmentId)) {
+      return res.status(403).json({ message: 'Cannot create event for another department' });
+    }
+
+    // Status rules
+    let status = 'pending';
+    if (req.user.role === 'admin' || req.user.role === 'manager') {
+      const allowed = ['pending','approved','rejected','completed'];
+      if (bodyStatus && allowed.includes(bodyStatus)) status = bodyStatus;
+    } else {
+      // employee must be pending regardless of body
+      status = 'pending';
     }
     const event = await Event.create({
       title,
@@ -88,6 +100,7 @@ async function createEvent(req, res) {
       repeat: repeat || null,
       departmentId: departmentId || (isGlobal ? null : req.user.departmentId) || null,
       is_global: !!isGlobal,
+      status,
     });
     const parts = Array.isArray(participantIds) ? participantIds : [];
     if (parts.length) {
@@ -95,6 +108,17 @@ async function createEvent(req, res) {
       await notifyUsers(parts, 'Lịch mới', `Bạn được mời tham dự: ${title}`, { ref_type: 'event', ref_id: event.id });
     }
     await notifyUsers(req.user.id, 'Tạo lịch thành công', `Đã tạo: ${title}`, { ref_type: 'event', ref_id: event.id });
+
+    // Notify department managers when pending for approval
+    if (status === 'pending') {
+      try {
+        const mgrs = await User.findAll({ where: { role: 'manager', departmentId: event.departmentId }, attributes: ['id'] });
+        const ids = mgrs.map(m => m.id);
+        if (ids.length) {
+          await notifyUsers(ids, 'Lịch chờ duyệt', `Có lịch mới chờ duyệt: ${event.title}`, { ref_type: 'event', ref_id: event.id });
+        }
+      } catch (_) {}
+    }
     const created = await Event.findByPk(event.id, { include: [Room, { model: User, as: 'createdBy', attributes: ['id','name','email'] }, Participant] });
     return res.status(201).json(created);
   } catch (e) { return res.status(500).json({ message: e.message }); }

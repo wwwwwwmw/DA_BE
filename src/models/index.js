@@ -12,6 +12,7 @@ const defineTaskAssignment = require('../modules/tasks/task_assignment.model');
 const defineProject = require('../modules/projects/project.model');
 const defineLabel = require('../modules/labels/label.model');
 const defineTaskLabel = require('../modules/tasks/task_label.model');
+const defineTaskComment = require('./task_comment.model');
 
 // Initialize models
 const Department = defineDepartment(sequelize, DataTypes);
@@ -25,6 +26,7 @@ const Task = defineTask(sequelize, DataTypes);
 const TaskAssignment = defineTaskAssignment(sequelize, DataTypes);
 const Label = defineLabel(sequelize, DataTypes);
 const TaskLabel = defineTaskLabel(sequelize, DataTypes);
+const TaskComment = defineTaskComment(sequelize, DataTypes);
 
 // Associations
 Department.hasMany(User, { foreignKey: 'departmentId' });
@@ -66,6 +68,12 @@ TaskAssignment.belongsTo(User, { foreignKey: 'userId' });
 Department.hasMany(Event, { foreignKey: 'departmentId' });
 Event.belongsTo(Department, { foreignKey: 'departmentId' });
 
+// Task Comments
+Task.hasMany(TaskComment, { foreignKey: 'taskId', as: 'comments' });
+TaskComment.belongsTo(Task, { foreignKey: 'taskId' });
+User.hasMany(TaskComment, { foreignKey: 'userId', as: 'taskComments' });
+TaskComment.belongsTo(User, { foreignKey: 'userId' });
+
 module.exports = {
   sequelize,
   Department,
@@ -79,4 +87,5 @@ module.exports = {
   Label,
   TaskLabel,
   TaskAssignment,
+  TaskComment,
 };
