@@ -1,0 +1,27 @@
+node_modules/
+.env
+.env.local
+dist/
+coverage/
+*.log
+logs/
+npm-debug.log*
+package-lock.json
+# Optional: uncomment if you don't want lockfile versioned
+# yarn.lock
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE/editor
+.idea/
+.vscode/
+*.swp
+
+# Temporary uploads / backups
+uploads/tmp/
+backup/*.tmp
+
+# Ignore generated swagger bundle if added
+swagger.json
