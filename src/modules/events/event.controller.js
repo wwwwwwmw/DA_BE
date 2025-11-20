@@ -182,7 +182,7 @@ async function updateEvent(req, res) {
     if (typeof status !== 'undefined') {
       const participants = await Participant.findAll({ where: { eventId: event.id } });
       let ids = participants.map(p => p.userId).concat([event.createdById]);
-      // Also notify department members for department-scoped events
+      // Also notify department members for department-scoped events (primary + extra departments)
       try {
         const extraDeptIds = [];
         try {
