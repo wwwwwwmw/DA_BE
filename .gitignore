@@ -1,6 +1,6 @@
 node_modules/
 
-# Environment & config
+# Environment & secrets
 .env
 .env.local
 .env.*.local
@@ -12,18 +12,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-
 # Runtime data
 pids/
 *.pid
 *.seed
 *.pid.lock
 
-# Coverage
+# Coverage / build output
 coverage/
 *.lcov
-
-# Build / dist output
 build/
 dist/
 .tmp/
@@ -34,7 +31,7 @@ dist/
 Thumbs.db
 *.swp
 
-# IDE/editor
+# IDE / editor
 .vscode/
 .idea/
 
@@ -45,7 +42,7 @@ parcel-cache/
 .eslintcache
 .npm
 
-# Dependency lockfiles (keep one if desired)
+# Dependency lockfiles (choose one to keep)
 package-lock.json
 # yarn.lock
 
@@ -59,4 +56,3 @@ backup/*.tmp
 
 # Generated swagger (if produced locally)
 swagger.json
-node_modules/
