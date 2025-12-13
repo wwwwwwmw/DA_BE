@@ -96,17 +96,22 @@ async function forgotPassword(req, res) {
     // Always return generic message to avoid enumeration.
     if (user) {
       // Prepare email to admin
-      const adminEmail = process.env.ADMIN_EMAIL || process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_FROM;
+      const adminEmail = process.env.ADMIN_EMAIL || process.env.MAILERSEND_FROM_EMAIL || process.env.EMAIL_FROM;
       if (adminEmail) {
         if (process.env.DEBUG_EMAIL === 'true') {
           console.log('[forgot-password] notifying admin', { userId: user.id, email: user.email, adminEmail });
         }
-        await sendMail({
-          to: adminEmail,
-          subject: 'Yêu cầu đặt lại mật khẩu',
-          text: `Người dùng yêu cầu đặt lại mật khẩu:\nID: ${user.id}\nEmail: ${user.email}\nTên: ${user.name}\nVui lòng truy cập trang quản trị để reset.`,
-          html: `<p>Người dùng yêu cầu đặt lại mật khẩu:</p><ul><li>ID: ${user.id}</li><li>Email: ${user.email}</li><li>Tên: ${user.name}</li></ul><p>Vui lòng truy cập trang quản trị để thực hiện reset.</p>`
-        });
+        try {
+          await sendMail({
+            to: adminEmail,
+            subject: 'Yêu cầu đặt lại mật khẩu',
+            text: `Người dùng yêu cầu đặt lại mật khẩu:\nID: ${user.id}\nEmail: ${user.email}\nTên: ${user.name}\nVui lòng truy cập trang quản trị để reset.`,
+            html: `<p>Người dùng yêu cầu đặt lại mật khẩu:</p><ul><li>ID: ${user.id}</li><li>Email: ${user.email}</li><li>Tên: ${user.name}</li></ul><p>Vui lòng truy cập trang quản trị để thực hiện reset.</p>`
+          });
+        } catch (mailErr) {
+          console.error('[forgot-password] email send error', mailErr?.response?.body || mailErr);
+          // Continue without failing the whole request
+        }
       } else if (process.env.DEBUG_EMAIL === 'true') {
         console.warn('[forgot-password] no adminEmail configured');
       }

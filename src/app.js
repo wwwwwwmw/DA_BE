@@ -42,6 +42,8 @@ app.use('/api/backup', require('./presentation/routes/backup.routes'));
 app.use('/api/tasks', require('./presentation/routes/task.routes'));
 app.use('/api/projects', require('./presentation/routes/project.routes'));
 app.use('/api/labels', require('./presentation/routes/label.routes'));
+// Schedule module
+app.use('/api/schedule', require('./presentation/routes/schedule.routes'));
 
 // Swagger UI
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, { explorer: true }));

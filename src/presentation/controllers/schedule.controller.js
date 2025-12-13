@@ -11,8 +11,10 @@ async function upcoming(req, res) {
     const range = {};
     if (from || to) {
       range.start_time = {};
-      if (from) range.start_time[Op.gte] = new Date(from);
-      if (to) range.start_time[Op.lte] = new Date(to);
+      const fromDate = from ? new Date(from) : null;
+      const toDate = to ? new Date(to) : null;
+      if (fromDate && !isNaN(fromDate)) range.start_time[Op.gte] = fromDate;
+      if (toDate && !isNaN(toDate)) range.start_time[Op.lte] = toDate;
     }
     const taskWhere = {};
     if (range.start_time) taskWhere.start_time = range.start_time; // use start_time for tasks
@@ -36,16 +38,26 @@ async function upcoming(req, res) {
     if (req.user) {
       if (req.user.role === 'employee') {
         // events where user is participant or creator
-        eventWhere[Op.or] = [ { '$Participants.userId$': req.user.id }, { createdById: req.user.id } ];
+        eventWhere[Op.or] = [ { '$Participants.user_id$': req.user.id }, { createdById: req.user.id } ];
       } else if (req.user.role === 'manager') {
         // department events or global or participant
         const deptCond = { departmentId: req.user.departmentId || null };
-        eventWhere[Op.or] = [ deptCond, { is_global: true }, { '$Participants.userId$': req.user.id } ];
+        eventWhere[Op.or] = [ deptCond, { is_global: true }, { '$Participants.user_id$': req.user.id } ];
       }
     } else {
       eventWhere.is_global = true; eventWhere.status = 'approved';
     }
-    const events = await Event.findAll({ where: eventWhere, include: [ { model: Participant, include: [{ model: User, attributes: ['id','name'] }] }, { model: User, as: 'createdBy', attributes: ['id','name'] }, { model: Department, attributes: ['id','name'] } ], order: [['start_time','ASC']], limit: Math.min(Number(limit)||100,200) });
+    const events = await Event.findAll({
+      where: eventWhere,
+      include: [
+        { model: Participant, required: false, include: [{ model: User, attributes: ['id','name'] }] },
+        { model: User, as: 'createdBy', attributes: ['id','name'] },
+        { model: Department, attributes: ['id','name'] }
+      ],
+      order: [['start_time','ASC']],
+      limit: Math.min(Number(limit)||100,200),
+      subQuery: false
+    });
 
     // Normalize response
     const outTasks = tasks.map(t => ({
@@ -73,6 +85,7 @@ async function upcoming(req, res) {
     }));
     return res.json({ tasks: outTasks, events: outEvents });
   } catch (e) {
+    console.error('[schedule.upcoming] error', e);
     return res.status(500).json({ message: e.message });
   }
 }
