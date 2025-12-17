@@ -3,9 +3,13 @@ module.exports = (sequelize, DataTypes) => {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     taskId: { type: DataTypes.UUID, allowNull: false },
     userId: { type: DataTypes.UUID, allowNull: false },
-    status: { type: DataTypes.ENUM('applied','assigned','accepted','rejected','completed'), allowNull: false, defaultValue: 'applied' },
+    status: { type: DataTypes.ENUM('applied','assigned','accepted','rejected','completed','inactive'), allowNull: false, defaultValue: 'applied' },
     progress: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     reject_reason: { type: DataTypes.TEXT, allowNull: true },
+    // Ngày giờ nhân viên bắt đầu trong nhiệm vụ
+    started_at: { type: DataTypes.DATE, allowNull: true },
+    // Ngày giờ nhân viên ngưng hoạt động trong nhiệm vụ
+    inactive_at: { type: DataTypes.DATE, allowNull: true },
   }, {
     tableName: 'task_assignments',
     timestamps: true,

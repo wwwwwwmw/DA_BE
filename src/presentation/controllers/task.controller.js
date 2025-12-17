@@ -268,7 +268,15 @@ async function stats(req, res) {
 
 // ===== Assignments APIs =====
 async function getAcceptedCount(taskId) {
+  // Không đếm nhân viên đã ngưng hoạt động (inactive)
   return TaskAssignment.count({ where: { taskId, status: { [Op.in]: ['accepted','completed'] } } });
+}
+
+// Kiểm tra nhiệm vụ đã bắt đầu chưa
+function hasTaskStarted(task) {
+  const now = new Date();
+  const startBound = task.start_time || task.end_time;
+  return startBound && now >= new Date(startBound);
 }
 
 async function applyTask(req, res) {
@@ -279,14 +287,33 @@ async function applyTask(req, res) {
     const accepted = await getAcceptedCount(task.id);
     if (accepted >= task.capacity) return res.status(409).json({ message: 'Task is full' });
     const exists = await TaskAssignment.findOne({ where: { taskId: task.id, userId: req.user.id } });
-    if (exists) return res.status(400).json({ message: 'Already applied or assigned' });
-  const asg = await TaskAssignment.create({ taskId: task.id, userId: req.user.id, status: 'accepted' });
+    if (exists) {
+      // Nếu nhân viên đã inactive, có thể tái ứng tuyển
+      if (exists.status === 'inactive') {
+        exists.status = 'accepted';
+        exists.started_at = new Date(); // Ghi lại thời điểm bắt đầu mới
+        exists.inactive_at = null;
+        await exists.save();
+        
+        await autoUpdateTaskStatus(task.id);
+        try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'assign', id: task.id }); } catch (_) {}
+        return res.status(200).json(exists);
+      }
+      return res.status(400).json({ message: 'Already applied or assigned' });
+    }
+    // Ghi started_at khi nhân viên ứng tuyển
+    const asg = await TaskAssignment.create({ 
+      taskId: task.id, 
+      userId: req.user.id, 
+      status: 'accepted',
+      started_at: new Date() // Bắt đầu lúc ... ngày ...
+    });
   
-  // Auto update task status after new assignment
-  await autoUpdateTaskStatus(task.id);
+    // Auto update task status after new assignment
+    await autoUpdateTaskStatus(task.id);
   
-  try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'assign', id: task.id }); } catch (_) {}
-  return res.status(201).json(asg);
+    try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'assign', id: task.id }); } catch (_) {}
+    return res.status(201).json(asg);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }
 
@@ -311,17 +338,42 @@ async function assignTask(req, res) {
     }
     const accepted = await getAcceptedCount(task.id);
     if (accepted >= task.capacity) return res.status(409).json({ message: 'Task is full' });
+    
+    // Kiểm tra assignment đã tồn tại (kể cả inactive)
     const exists = await TaskAssignment.findOne({ where: { taskId: task.id, userId } });
-    if (exists) return res.status(400).json({ message: 'Already applied or assigned' });
+    if (exists) {
+      // Nếu nhân viên đã inactive, có thể tái kích hoạt
+      if (exists.status === 'inactive') {
+        const status = task.assignment_type === 'direct' ? 'assigned' : 'accepted';
+        exists.status = status;
+        exists.started_at = new Date(); // Ghi lại thời điểm bắt đầu mới
+        exists.inactive_at = null; // Xóa thời điểm ngưng hoạt động
+        await exists.save();
+        
+        await autoUpdateTaskStatus(task.id);
+        
+        try { require('../../infrastructure/external-services/services/notification.service').notifyUsers(userId, 'Nhiệm vụ mới', `Bạn được giao lại nhiệm vụ: ${task.title}`, { ref_type: 'task', ref_id: task.id }); } catch (_) {}
+        try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'assign', id: task.id }); } catch (_) {}
+        return res.status(200).json(exists);
+      }
+      return res.status(400).json({ message: 'Already applied or assigned' });
+    }
+    
     const status = task.assignment_type === 'direct' ? 'assigned' : 'accepted';
-  const asg = await TaskAssignment.create({ taskId: task.id, userId, status });
+    // Ghi started_at khi assign nhân viên mới
+    const asg = await TaskAssignment.create({ 
+      taskId: task.id, 
+      userId, 
+      status,
+      started_at: new Date() // Bắt đầu lúc ... ngày ...
+    });
   
-  // Auto update task status after new assignment
-  await autoUpdateTaskStatus(task.id);
+    // Auto update task status after new assignment
+    await autoUpdateTaskStatus(task.id);
   
     try { require('../../infrastructure/external-services/services/notification.service').notifyUsers(userId, 'Nhiệm vụ mới', task.title, { ref_type: 'task', ref_id: task.id }); } catch (_) {}
-  try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'assign', id: task.id }); } catch (_) {}
-  return res.status(201).json(asg);
+    try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'assign', id: task.id }); } catch (_) {}
+    return res.status(201).json(asg);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }
 async function rejectTask(req, res) {
@@ -457,7 +509,96 @@ async function updateProgress(req, res) {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 }
 
-module.exports = { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, acceptTask, updateProgress, rejectTask, approveRejection, denyRejection };
+// Gỡ nhân viên khỏi nhiệm vụ
+// - Nếu nhiệm vụ chưa bắt đầu: xóa assignment hoàn toàn
+// - Nếu nhiệm vụ đã bắt đầu: đặt status = 'inactive' và ghi inactive_at
+async function unassignTask(req, res) {
+  try {
+    if (!(req.user.role === 'manager' || req.user.role === 'admin')) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    
+    const task = await Task.findByPk(req.params.id);
+    if (!task) return res.status(404).json({ message: 'Task not found' });
+    
+    // Manager chỉ được gỡ nhân viên trong phòng ban của mình
+    if (req.user.role === 'manager' && String(task.departmentId) !== String(req.user.departmentId)) {
+      return res.status(403).json({ message: 'Cross-department not allowed' });
+    }
+    
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ message: 'Missing userId' });
+    
+    const asg = await TaskAssignment.findOne({ 
+      where: { taskId: task.id, userId },
+      include: [{ model: User, attributes: ['id', 'name', 'email'] }]
+    });
+    if (!asg) return res.status(404).json({ message: 'Assignment not found' });
+    
+    // Không thể gỡ nhân viên đã hoàn thành
+    if (asg.status === 'completed') {
+      return res.status(400).json({ message: 'Cannot unassign completed assignment' });
+    }
+    
+    // Đã inactive rồi thì không cần làm gì
+    if (asg.status === 'inactive') {
+      return res.status(400).json({ message: 'Assignment already inactive' });
+    }
+    
+    const taskStarted = hasTaskStarted(task);
+    const userName = asg.User?.name || asg.User?.email || 'Nhân viên';
+    
+    if (taskStarted) {
+      // Nhiệm vụ đã bắt đầu: đặt trạng thái inactive và ghi thời điểm
+      asg.status = 'inactive';
+      asg.inactive_at = new Date(); // Ngưng hoạt động lúc ... ngày ...
+      await asg.save();
+      
+      // Thông báo cho nhân viên
+      try {
+        await require('../../infrastructure/external-services/services/notification.service').notifyUsers(
+          userId, 
+          'Ngưng hoạt động trong nhiệm vụ', 
+          `Bạn đã được gỡ khỏi nhiệm vụ "${task.title}" và được đánh dấu là ngưng hoạt động.`, 
+          { ref_type: 'task', ref_id: task.id }
+        );
+      } catch (_) {}
+      
+      try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'unassign', id: task.id }); } catch (_) {}
+      
+      return res.json({ 
+        message: `${userName} đã ngưng hoạt động trong nhiệm vụ này`,
+        assignment: asg,
+        taskStarted: true,
+        inactiveAt: asg.inactive_at
+      });
+    } else {
+      // Nhiệm vụ chưa bắt đầu: xóa assignment hoàn toàn
+      await asg.destroy();
+      
+      // Thông báo cho nhân viên
+      try {
+        await require('../../infrastructure/external-services/services/notification.service').notifyUsers(
+          userId, 
+          'Gỡ khỏi nhiệm vụ', 
+          `Bạn đã được gỡ khỏi nhiệm vụ "${task.title}".`, 
+          { ref_type: 'task', ref_id: task.id }
+        );
+      } catch (_) {}
+      
+      try { getIO().emit('dataUpdated', { resource: 'tasks', action: 'unassign', id: task.id }); } catch (_) {}
+      
+      return res.json({ 
+        message: `${userName} đã được gỡ khỏi nhiệm vụ`,
+        taskStarted: false
+      });
+    }
+  } catch (e) { 
+    return res.status(500).json({ message: e.message }); 
+  }
+}
+
+module.exports = { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, unassignTask, acceptTask, updateProgress, rejectTask, approveRejection, denyRejection };
 // ===== Comments APIs =====
 async function listComments(req, res) {
   try {

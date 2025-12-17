@@ -1,6 +1,6 @@
 require('dotenv').config();
 console.log('[DB] Running alter sync...');
-const { sequelize } = require('../src/models'); // models index registers all associations
+const { sequelize } = require('../src/infrastructure/database/models'); // models index registers all associations
 (async () => {
   try {
     await sequelize.authenticate();

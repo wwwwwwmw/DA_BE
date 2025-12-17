@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/auth.middleware');
-const { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, acceptTask, updateProgress, rejectTask, approveRejection, denyRejection, listComments, createComment } = require('../controllers/task.controller');
+const { listTasks, createTask, updateTask, deleteTask, stats, applyTask, assignTask, unassignTask, acceptTask, updateProgress, rejectTask, approveRejection, denyRejection, listComments, createComment } = require('../controllers/task.controller');
 
 /**
  * @swagger
@@ -140,6 +140,43 @@ router.post('/:id/apply', applyTask);
  *       200: { description: Thành công }
  */
 router.post('/:id/assign', assignTask);
+
+/**
+ * @swagger
+ * /api/tasks/{id}/unassign:
+ *   post:
+ *     tags: [Quản lý dự án & nhiệm vụ]
+ *     summary: Gỡ nhân viên khỏi nhiệm vụ
+ *     description: |
+ *       - Nếu nhiệm vụ chưa bắt đầu: xóa phân công hoàn toàn
+ *       - Nếu nhiệm vụ đã bắt đầu: đặt trạng thái 'inactive' và lưu thời điểm ngưng hoạt động
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               userId: { type: string, description: ID người cần gỡ }
+ *     responses:
+ *       200: 
+ *         description: Thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *                 taskStarted: { type: boolean, description: Nhiệm vụ đã bắt đầu chưa }
+ *                 inactiveAt: { type: string, format: date-time, description: Thời điểm ngưng hoạt động (nếu đã bắt đầu) }
+ *       404: { description: Không tìm thấy }
+ */
+router.post('/:id/unassign', unassignTask);
 
 /**
  * @swagger
